@@ -4,6 +4,7 @@
 #include <core/ev_watcher.hh>
 #include <core/ev_loop.hh>
 #include <core/clock.hh>
+#include <core/mem.hh>
 #include <core/exception.hh>
 
 #include <unistd.h>
@@ -11,6 +12,14 @@
 #include <netinet/ip.h>
 
 #include <array>
+
+struct izm_sockaddr {
+    union {
+	sockaddr untyped;
+	sockaddr_in ipv4;
+    };
+    socklen_t len;
+};
 
 int
 bind_listen_sock(uint16_t port)
@@ -40,9 +49,16 @@ private:
     constexpr static std::size_t BUFSIZE = 4096;
     std::array<char, BUFSIZE> m_buffer;
     std::size_t m_rp = 0, m_wp = 0;
+
+    izumo::core::mem_pool m_pool;
+    izumo::core::mp_unique_ptr<izm_sockaddr> m_addr;
     
 public:
-    client(int fd): ev_watcher(fd) {}
+    client(int fd, izumo::core::mp_unique_ptr<izm_sockaddr> addr,
+	   izumo::core::mem_pool p):
+	ev_watcher(fd), m_addr(std::move(addr)),
+	m_pool(std::move(p))
+    {}
 
     bool
     on_event(bool r, bool w) override
@@ -100,7 +116,11 @@ public:
 
 class acceptor: public izumo::core::ev_watcher {
 private:
-    std::array<int, 128> m_queue;
+    struct queue_entry {
+	int fd;
+	izm_sockaddr addr;
+    };
+    std::array<queue_entry, 128> m_queue;
     std::size_t m_qp = 0;
     
 public:
@@ -114,17 +134,19 @@ public:
 	bool do_defer = false;
 
 	while (true) {
-	    int ret = accept4(m_fd, nullptr, 0, SOCK_NONBLOCK);
-
+	    auto& qe = m_queue[m_qp];
+	    auto ret = accept4(m_fd, &qe.addr.untyped, &qe.addr.len, SOCK_NONBLOCK);
+	    
 	    if (ret < 0) {
 		if (errno != EAGAIN && errno != EWOULDBLOCK) {
 		    throw izumo::core::osexception();
 		}
 		break;
 	    }
+	    qe.fd = ret;
 
 	    do_defer = true;
-	    m_queue[m_qp++] = ret;
+	    ++m_qp;
 	    if (m_qp == 128) break;
 	}
 
@@ -134,7 +156,10 @@ public:
     void
     on_deferred() override {
 	for (std::size_t i = 0; i < m_qp; ++i) {
-	    auto c = new client(m_queue[i]);
+	    izumo::core::mem_pool p;
+	    auto addr = p.make_unique<izm_sockaddr>();
+	    *addr = m_queue[i].addr;
+	    auto c = new client(m_queue[i].fd, std::move(addr), std::move(p));
 	    izumo::core::ev_loop::instance().add_watcher(*c);
 	}
 
