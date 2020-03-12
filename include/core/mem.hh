@@ -29,6 +29,7 @@ namespace izumo::core {
     template <typename _t>
     using mp_unique_ptr = std::unique_ptr<_t, _mem_pool_delete<_t>>;
 
+    /** mem_pool: simple memory pool implementation */
     class mem_pool {
     private:
 	_mem_chunk_header *m_chunk_p = nullptr;
@@ -97,6 +98,47 @@ namespace izumo::core {
 	{
 	    return mp_unique_ptr<_t>(try_construct<_t>(std::forward<_args_t>(args)...));
 	}
+    };
+
+    /** std allocator interface adapter */
+    template <typename _t>
+    class mem_pool_allocator {
+    public:
+	using value_type = _t;
+
+    private:
+	mem_pool& m_pool;
+
+    public:
+	mem_pool_allocator(mem_pool& p) noexcept: m_pool(p) {}
+	~mem_pool_allocator() = default;
+	mem_pool_allocator(const mem_pool_allocator&) = default;
+
+	template <typename _u>
+	mem_pool_allocator(const mem_pool_allocator<_u>& rhs) noexcept:
+	    m_pool(rhs.p)
+	{}
+
+	bool
+	operator==(const mem_pool_allocator& rhs)
+	{
+	    return &m_pool == &rhs.m_pool;
+	}
+
+	bool
+	operator!=(const mem_pool_allocator& rhs)
+	{
+	    return &m_pool != &rhs.m_pool;
+	};
+
+	value_type*
+	allocate(std::size_t n)
+	{
+	    // XXX: integer overflow?
+	    return m_pool.allocate(n * sizeof(value_type), alignof(value_type));
+	}
+
+	void deallocate(value_type*, std::size_t) {}
     };
 }
 
