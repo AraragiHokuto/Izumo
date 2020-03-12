@@ -3,6 +3,7 @@
 
 #include <core/ev_watcher.hh>
 #include <core/ev_loop.hh>
+#include <core/byte_buffer.hh>
 #include <core/clock.hh>
 #include <core/mem.hh>
 #include <core/exception.hh>
@@ -20,6 +21,8 @@ struct izm_sockaddr {
     };
     socklen_t len;
 };
+
+const char* RESPONSE = "HTTP/1.1 200 OK\r\nServer: Izumo\r\nContent-Type: text/plain\r\nContent-Length: 10\r\n\r\nIzumo DEMO";
 
 int
 bind_listen_sock(uint16_t port)
@@ -47,70 +50,97 @@ bind_listen_sock(uint16_t port)
 class client: public izumo::core::ev_watcher {
 private:
     constexpr static std::size_t BUFSIZE = 4096;
-    std::array<char, BUFSIZE> m_buffer;
-    std::size_t m_rp = 0, m_wp = 0;
+    std::size_t m_bytes_read = 0;
+    bool m_writing = false;
 
+    izumo::core::byte_buffer m_buffer;
+    izumo::core::byte_buffer_view m_write_view;
     izumo::core::mem_pool m_pool;
     izumo::core::mp_unique_ptr<izm_sockaddr> m_addr;
+
+    void
+    stop()
+    {
+	izumo::core::ev_loop::instance().remove_watcher(*this);
+	shutdown(m_fd, SHUT_RDWR);
+	close(m_fd);
+	delete this;
+    }
     
 public:
     client(int fd, izumo::core::mp_unique_ptr<izm_sockaddr> addr,
 	   izumo::core::mem_pool p):
 	ev_watcher(fd), m_addr(std::move(addr)),
+	m_buffer(BUFSIZE),
 	m_pool(std::move(p))
     {}
 
     bool
+    have_eoh(const izumo::core::byte_buffer_view& view)
+    {
+	if (view.size() < 4) return false;
+	
+	for (int i = 0; i < view.size() - 3; ++i) {
+	    if (view.slice(i, 4) == std::string_view("\r\n\r\n")) return true;
+	}
+	return false;
+    }
+
+    bool
     on_event(bool r, bool w) override
     {
-	int ret;
+	if (!m_writing && !r) return false;
+	if (m_writing && !w) return false;
+
 	while (true) {
-	    ret = recv(m_fd, m_buffer.data() + m_rp, BUFSIZE - m_rp, MSG_NOSIGNAL);
+	    auto ret = recv(m_fd, m_buffer.ptr() + m_bytes_read, m_buffer.size() - m_bytes_read, MSG_NOSIGNAL);
 	    if (ret < 0) {
 		if (errno != EAGAIN && errno != EWOULDBLOCK) {
 		    throw izumo::core::osexception();
 		}
+		return false;
+	    }
+	    
+	    if (ret == 0) {
+		stop();
+		return false;
+	    }
+	    
+	    m_bytes_read += ret;
+	    if (have_eoh(izumo::core::byte_buffer_view(m_buffer, m_bytes_read))) {
 		break;
 	    }
 
-	    if (ret == 0) {
-		shutdown(m_fd, SHUT_RDWR);
-		close(m_fd);
-		delete this;
-		return false;
+	    if (m_bytes_read == m_buffer.size()) {
+		break;
 	    }
-
-	    m_rp += ret;
-	    if (m_rp == BUFSIZE)
-		m_rp = 0;
 	}
 
+	m_writing = true;
+	m_write_view = izumo::core::byte_buffer_view(m_buffer, std::strlen(RESPONSE));
+	std::strcpy(reinterpret_cast<char*>(m_write_view.data()), RESPONSE);
+	
 	while (true) {
-	    if (m_wp == m_rp) break; // nothing to write
-
-	    auto end = m_rp < m_wp ? BUFSIZE : m_rp;
-
-	    ret = send(m_fd, m_buffer.data() + m_wp, end - m_wp, MSG_NOSIGNAL);
+	    auto ret = send(m_fd, m_write_view.data(), m_write_view.size(), MSG_NOSIGNAL);
 	    if (ret < 0) {
 		if (errno != EAGAIN && errno != EWOULDBLOCK) {
 		    throw izumo::core::osexception();
 		}
-		break;
-	    }
-
-	    if (ret == 0) {
-		shutdown(m_fd, SHUT_RDWR);
-		close(m_fd);
-		delete this;
 		return false;
 	    }
 
-	    m_wp += ret;
-	    if (m_wp == BUFSIZE)
-		m_wp = 0;
-	}
+	    if (ret == 0) {
+		stop();
+		return false;
+	    }
 
-	return false;
+	    if (ret == m_write_view.size()) {
+		stop();
+		return false;
+	    }
+	    
+	    m_write_view = m_write_view.slice(ret, m_write_view.size() - ret);
+	}
     }
 };
 
