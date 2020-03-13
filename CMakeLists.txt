@@ -14,3 +14,6 @@ file(GLOB srcs
   )
 
 add_executable(izumo ${srcs})
+
+find_package(fmt)
+target_link_libraries(izumo fmt::fmt)

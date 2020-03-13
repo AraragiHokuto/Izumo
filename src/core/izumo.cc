@@ -7,10 +7,12 @@
 #include <core/clock.hh>
 #include <core/mem.hh>
 #include <core/exception.hh>
+#include <core/log.hh>
 
 #include <unistd.h>
 #include <sys/socket.h>
 #include <netinet/ip.h>
+#include <arpa/inet.h>
 
 #include <array>
 
@@ -73,7 +75,11 @@ public:
 	ev_watcher(fd), m_addr(std::move(addr)),
 	m_buffer(BUFSIZE),
 	m_pool(std::move(p))
-    {}
+    {
+	izumo::core::log::info("New client: {}:{}",
+			       inet_ntoa(m_addr->ipv4.sin_addr),
+			       ntohs(m_addr->ipv4.sin_port));
+    }
 
     bool
     have_eoh(const izumo::core::byte_buffer_view& view)
@@ -154,7 +160,9 @@ private:
     std::size_t m_qp = 0;
     
 public:
-    acceptor(uint16_t port): ev_watcher(bind_listen_sock(port)) {}
+    acceptor(uint16_t port): ev_watcher(bind_listen_sock(port)) {
+	izumo::core::log::info("Listening on {}", port);
+    }
     
     bool
     on_event(bool r, bool) override
