@@ -187,7 +187,7 @@ public:
 		return false;
 	    }
 	    
-	    m_write_view = m_write_view.slice(ret, m_write_view.size() - ret);
+	    m_write_view = m_write_view.slice(ret, m_write_view.size());
 	}
     }
 };

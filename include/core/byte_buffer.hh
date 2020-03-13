@@ -35,27 +35,28 @@ namespace izumo::core {
     class byte_buffer_view {
     private:
 	byte_t* m_buf = nullptr;
-	std::size_t m_off = 0;
-	std::size_t m_len = 0;
+	std::size_t m_begin = 0;
+	std::size_t m_end = 0;
 
     public:
 	byte_buffer_view() = default;
 	byte_buffer_view(byte_buffer& buffer): byte_buffer_view(buffer, 0, buffer.size()) {}
-	byte_buffer_view(byte_buffer& buffer, std::size_t length):
-	    byte_buffer_view(buffer, 0, length)
+	byte_buffer_view(byte_buffer& buffer, std::size_t end):
+	    byte_buffer_view(buffer, 0, end)
 	{}
-	byte_buffer_view(byte_buffer& buffer, std::size_t offset, std::size_t length):
-	    m_buf(buffer.ptr()), m_off(offset), m_len(length)
+	byte_buffer_view(byte_buffer& buffer, std::size_t begin, std::size_t end):
+	    m_buf(buffer.ptr()), m_begin(begin), m_end(end)
 	{}
 	byte_buffer_view(const byte_buffer_view& rhs) = default;
 
 	void* data() const noexcept;
+	byte_t* ptr() const noexcept;
 	std::size_t size() const noexcept;
 
 	byte_t& operator[](std::size_t n) const noexcept;
 
-	byte_buffer_view slice(std::size_t length) const noexcept;
-	byte_buffer_view slice(std::size_t offset, std::size_t length) const noexcept;
+	byte_buffer_view slice(std::size_t end) const noexcept;
+	byte_buffer_view slice(std::size_t begin, std::size_t end) const noexcept;
 
 	operator std::string_view() const noexcept;
     };

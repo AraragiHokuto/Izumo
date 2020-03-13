@@ -49,39 +49,45 @@ namespace izumo::core {
     void*
     byte_buffer_view::data() const noexcept
     {
-	return m_buf + m_off;
+	return ptr();
+    }
+
+    byte_t*
+    byte_buffer_view::ptr() const noexcept
+    {
+	return m_buf + m_begin;
     }
     
     std::size_t
     byte_buffer_view::size() const noexcept
     {
-	return m_len;
+	return m_end - m_begin;
     }
 
     byte_t&
     byte_buffer_view::operator[](std::size_t n) const noexcept
     {
-	return static_cast<byte_t*>(data())[n];
+	return ptr()[n];
     }
 
     byte_buffer_view
-    byte_buffer_view::slice(std::size_t length) const noexcept
+    byte_buffer_view::slice(std::size_t end) const noexcept
     {
-	return slice(0, length);
+	return slice(0, end);
     }
 
     byte_buffer_view
-    byte_buffer_view::slice(std::size_t offset, std::size_t length) const noexcept
+    byte_buffer_view::slice(std::size_t begin, std::size_t end) const noexcept
     {
 	auto ret = *this;
-	ret.m_off = offset;
-	ret.m_len = length;
+	ret.m_begin = m_begin + begin;
+	ret.m_end = m_begin + end;
 	return ret;
     }
 
     byte_buffer_view::operator std::string_view() const noexcept
     {
 	auto ptr = static_cast<std::string_view::value_type*>(data());
-	return std::string_view(ptr, m_len);
+	return std::string_view(ptr, m_end);
     }
 }
