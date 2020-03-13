@@ -1,6 +1,3 @@
-#include <iostream>
-#include <cstring>
-
 #include <core/ev_watcher.hh>
 #include <core/ev_loop.hh>
 #include <core/byte_buffer.hh>
@@ -9,12 +6,57 @@
 #include <core/exception.hh>
 #include <core/log.hh>
 
+#include <array>
+#include <iostream>
+#include <cstring>
+
+#include <fmt/printf.h>
+
 #include <unistd.h>
 #include <sys/socket.h>
 #include <netinet/ip.h>
 #include <arpa/inet.h>
 
-#include <array>
+#include <getopt.h>
+
+// this file needs to be refactored one day
+
+static struct {
+    std::uint16_t port_h = 12345; // port number in host byte order
+} cmdargs;
+
+static void
+usage(const char* cmdname = "izumo")
+{
+    fmt::print("Usage: {} [-p, --port port]\n", cmdname);
+    fmt::print("\t-p, --port port: port number for demo server to listen to\n");
+}
+
+static void
+parse_opts(int argc, char *argv[])
+{
+    const char* opts = "p:";
+
+    option longopts[] = {
+	{ .name = "port", .has_arg = true, .flag = nullptr, .val = 'p' }
+    };
+
+    auto running = true;
+    while (running) {
+	switch (getopt_long(argc, argv, opts, longopts, nullptr))
+	{
+	case 'p':
+	    cmdargs.port_h = std::stoul(optarg);
+	    break;
+	case -1:
+	    running = false;
+	    break;
+	default:
+	    usage();
+	    std::exit(-1);
+	}
+    }
+}
 
 struct izm_sockaddr {
     union {
@@ -206,9 +248,10 @@ public:
 };
 
 int
-main()
+main(int argc, char *argv[])
 {
-    acceptor ac(13445);
+    parse_opts(argc, argv);
+    acceptor ac(cmdargs.port_h);
 
     auto& loop = izumo::core::ev_loop::instance();
     loop.add_watcher(ac);
