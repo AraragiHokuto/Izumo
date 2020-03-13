@@ -6,6 +6,8 @@
 #include <core/exception.hh>
 #include <core/log.hh>
 
+#include <http/parser.hh>
+
 #include <array>
 #include <iostream>
 #include <cstring>
@@ -66,7 +68,16 @@ struct izm_sockaddr {
     socklen_t len;
 };
 
-const char* RESPONSE = "HTTP/1.1 200 OK\r\nServer: Izumo\r\nContent-Type: text/plain\r\nContent-Length: 10\r\n\r\nIzumo DEMO";
+const char* RESPONSE_HEADER =
+    "HTTP/1.1 200 OK\r\n"
+    "Server: Izumo\r\n"
+    "Content-Type: text/plain\r\n\r\n";
+const char* RESPONSE_400 =
+    "HTTP/1.1 400 Bad Request\r\n"
+    "Server: Izumo\r\n"
+    "Content-Type: text/plain\r\n"
+    "Content-Length 15\r\n\r\n"
+    "400 Bad Request";
 
 int
 bind_listen_sock(uint16_t port)
@@ -124,22 +135,12 @@ public:
     }
 
     bool
-    have_eoh(const izumo::core::byte_buffer_view& view)
-    {
-	if (view.size() < 4) return false;
-	
-	for (int i = 0; i < view.size() - 3; ++i) {
-	    if (view.slice(i, 4) == std::string_view("\r\n\r\n")) return true;
-	}
-	return false;
-    }
-
-    bool
     on_event(bool r, bool w) override
     {
 	if (!m_writing && !r) return false;
 	if (m_writing && !w) return false;
 
+	izumo::core::byte_buffer_view read_view;
 	while (true) {
 	    auto ret = recv(m_fd, m_buffer.ptr() + m_bytes_read, m_buffer.size() - m_bytes_read, MSG_NOSIGNAL);
 	    if (ret < 0) {
@@ -155,7 +156,9 @@ public:
 	    }
 	    
 	    m_bytes_read += ret;
-	    if (have_eoh(izumo::core::byte_buffer_view(m_buffer, m_bytes_read))) {
+	    read_view = izumo::core::byte_buffer_view(m_buffer, m_bytes_read);
+	    
+	    if (izumo::http::header_completed(read_view)) {
 		break;
 	    }
 
@@ -165,8 +168,19 @@ public:
 	}
 
 	m_writing = true;
-	m_write_view = izumo::core::byte_buffer_view(m_buffer, std::strlen(RESPONSE));
-	std::strcpy(reinterpret_cast<char*>(m_write_view.data()), RESPONSE);
+	try {
+	    izumo::http::request req(m_pool);
+	    izumo::http::parse_request(req, read_view);
+	    
+	    auto response = fmt::format("{}{}: {}", RESPONSE_HEADER, req.method, req.target);
+	    assert(response.size() < m_buffer.size());
+	    m_write_view = izumo::core::byte_buffer_view(m_buffer, response.size());
+	    std::memcpy(m_write_view.data(), response.data(), response.size());
+	} catch(const izumo::http::bad_request&) {
+	    m_write_view = izumo::core::byte_buffer_view(m_buffer, std::strlen(RESPONSE_400));
+	    std::memcpy(m_write_view.data(), RESPONSE_400, std::strlen(RESPONSE_400));
+	}
+
 	
 	while (true) {
 	    auto ret = send(m_fd, m_write_view.data(), m_write_view.size(), MSG_NOSIGNAL);
