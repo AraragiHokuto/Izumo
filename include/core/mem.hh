@@ -116,7 +116,7 @@ namespace izumo::core {
 
 	template <typename _u>
 	mem_pool_allocator(const mem_pool_allocator<_u>& rhs) noexcept:
-	    m_pool(rhs.p)
+	    m_pool(rhs.pool())
 	{}
 
 	bool
@@ -135,8 +135,11 @@ namespace izumo::core {
 	allocate(std::size_t n)
 	{
 	    // XXX: integer overflow?
-	    return m_pool.allocate(n * sizeof(value_type), alignof(value_type));
+	    auto ret = m_pool.allocate(n * sizeof(value_type), alignof(value_type));
+	    return reinterpret_cast<value_type*>(ret);
 	}
+
+	mem_pool& pool() const noexcept { return m_pool; }
 
 	void deallocate(value_type*, std::size_t) {}
     };
