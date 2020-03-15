@@ -8,6 +8,7 @@ namespace izumo::core {
     using byte_t = uint8_t;
 
     class byte_buffer_view;
+    class byte_buffer_writer;
     
     /** byte_buffer: contiguous container for raw bytes */
     class byte_buffer {
@@ -28,6 +29,9 @@ namespace izumo::core {
 	void resize(std::size_t new_size) noexcept;
 	bool try_resize(std::size_t new_size) noexcept;
 
+	byte_buffer_view view(std::size_t end);
+	byte_buffer_view view(std::size_t offset, std::size_t end);
+
 	void* data() const noexcept { return m_ptr; }
 	byte_t* ptr() const noexcept { return m_ptr; }
     };
@@ -37,6 +41,8 @@ namespace izumo::core {
 	byte_t* m_buf = nullptr;
 	std::size_t m_begin = 0;
 	std::size_t m_end = 0;
+
+	friend byte_buffer_writer;
 
     public:
 	byte_buffer_view() = default;
@@ -59,6 +65,32 @@ namespace izumo::core {
 	byte_buffer_view slice(std::size_t begin, std::size_t end) const noexcept;
 
 	operator std::string_view() const noexcept;
+    };
+
+    class byte_buffer_writer {
+    private:
+	byte_t* m_buf = nullptr;
+	std::size_t m_begin = 0;
+	std::size_t m_current = 0;
+	std::size_t m_end = 0;
+
+    public:
+	byte_buffer_writer() = default;
+	byte_buffer_writer(byte_buffer& buffer):
+	    byte_buffer_writer(buffer, 0)
+	{}
+	byte_buffer_writer(byte_buffer& buffer, std::size_t begin);
+
+	void* current() const noexcept;
+	void* begin() const noexcept;
+	void* end() const noexcept;
+
+	std::size_t size() const noexcept;
+	std::size_t space() const noexcept;
+
+	void append(std::size_t size) noexcept;
+
+	byte_buffer_view to_view() const noexcept;
     };
 }
 

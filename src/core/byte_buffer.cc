@@ -46,6 +46,18 @@ namespace izumo::core {
 	if (!try_resize(n)) std::abort();
     }
 
+    byte_buffer_view
+    byte_buffer::view(std::size_t end)
+    {
+	return view(0, end);
+    }
+
+    byte_buffer_view
+    byte_buffer::view(std::size_t begin, std::size_t end)
+    {
+	return byte_buffer_view(*this, begin, end);
+    }
+
     void*
     byte_buffer_view::data() const noexcept
     {
@@ -89,5 +101,56 @@ namespace izumo::core {
     {
 	auto ptr = static_cast<std::string_view::value_type*>(data());
 	return std::string_view(ptr, m_end);
+    }
+
+    byte_buffer_writer::byte_buffer_writer(byte_buffer& buffer, std::size_t begin):
+	m_buf(buffer.ptr()), m_begin(begin), m_current(begin), m_end(buffer.size())
+    {}
+
+    void*
+    byte_buffer_writer::current() const noexcept
+    {
+	return m_buf + m_current;
+    }
+
+    void*
+    byte_buffer_writer::begin() const noexcept
+    {
+	return m_buf + m_begin;
+    }
+
+    void*
+    byte_buffer_writer::end() const noexcept
+    {
+	return m_buf + m_end;
+    }
+
+    std::size_t
+    byte_buffer_writer::size() const noexcept
+    {
+	return m_end - m_begin;
+    }
+
+    std::size_t
+    byte_buffer_writer::space() const noexcept
+    {
+	return m_end - m_current;
+    }
+
+    void
+    byte_buffer_writer::append(std::size_t size) noexcept
+    {
+	assert(size <= m_end - m_current);
+	m_current += size;
+    }
+
+    byte_buffer_view
+    byte_buffer_writer::to_view() const noexcept
+    {
+	byte_buffer_view ret;
+	ret.m_buf = m_buf;
+	ret.m_begin = m_begin;
+	ret.m_end = m_current;
+	return ret;
     }
 }

@@ -105,10 +105,9 @@ bind_listen_sock(uint16_t port)
 class client: public izumo::core::ev_watcher {
 private:
     constexpr static std::size_t BUFSIZE = 4096;
-    std::size_t m_bytes_read = 0;
     bool m_writing = false;
-
     izumo::core::byte_buffer m_buffer;
+    izumo::core::byte_buffer_writer m_buffer_writer;
     izumo::core::byte_buffer_view m_write_view;
     izumo::core::mem_pool m_pool;
     izumo::core::mp_unique_ptr<izm_sockaddr> m_addr;
@@ -127,6 +126,7 @@ public:
 	   izumo::core::mem_pool p):
 	ev_watcher(fd), m_addr(std::move(addr)),
 	m_buffer(BUFSIZE),
+	m_buffer_writer(m_buffer),
 	m_pool(std::move(p))
     {
 	izumo::core::log::info("New client: {}:{}",
@@ -142,7 +142,7 @@ public:
 
 	izumo::core::byte_buffer_view read_view;
 	while (true) {
-	    auto ret = recv(m_fd, m_buffer.ptr() + m_bytes_read, m_buffer.size() - m_bytes_read, MSG_NOSIGNAL);
+	    auto ret = recv(m_fd, m_buffer_writer.current(), m_buffer_writer.space(), MSG_NOSIGNAL);
 	    if (ret < 0) {
 		if (errno != EAGAIN && errno != EWOULDBLOCK) {
 		    throw izumo::core::osexception();
@@ -155,14 +155,14 @@ public:
 		return false;
 	    }
 	    
-	    m_bytes_read += ret;
-	    read_view = izumo::core::byte_buffer_view(m_buffer, m_bytes_read);
+	    m_buffer_writer.append(ret);
+	    read_view = m_buffer_writer.to_view();
 	    
 	    if (izumo::http::header_completed(read_view)) {
 		break;
 	    }
 
-	    if (m_bytes_read == m_buffer.size()) {
+	    if (!m_buffer_writer.space()) {
 		break;
 	    }
 	}
