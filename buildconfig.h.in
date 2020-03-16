@@ -1,0 +1,3 @@
+#cmakedefine IZM_HAVE_EPOLL
+#cmakedefine IZM_HAVE_ACCEPT4
+#cmakedefine IZM_EVLOOP_DEFAULT_IMPL "@IZM_EVLOOP_DEFAULT_IMPL@"
