@@ -9,6 +9,7 @@
 #include <queue>
 #include <cassert>
 
+#include <buildconfig.h>
 #include "ev_loop.in.cc"
 
 IMPL_MAP_DEF;
@@ -25,6 +26,9 @@ namespace izumo::core {
     ev_loop&
     ev_loop::instance()
     {
-	return _ev_loop_get_impl_instance("epoll");
+#if !defined (IZM_HAVE_EPOLL)
+#error "XXX: only epoll is supported now"
+#endif
+	return _ev_loop_get_impl_instance(IZM_EVLOOP_DEFAULT_IMPL);
     }
 }
