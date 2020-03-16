@@ -1,7 +1,7 @@
 #include <core/ev_loop.hh>
 #include <core/exception.hh>
 
-#include <queue>
+#include <map>
 
 #include <unistd.h>
 #include <sys/epoll.h>
@@ -9,26 +9,12 @@
 #include "ev_loop.in.cc"
 
 namespace izumo::core {
-    struct timeout_queue_entry {
-	uint64_t deadline;
-	ev_watcher* watcher;
-    };
-    
-    constexpr static auto timeout_queue_cmp = [](const timeout_queue_entry& a, const timeout_queue_entry& b)
-    {
-	return a.deadline > b.deadline;
-    };
-
-    using timeout_queue_t = std::priority_queue<timeout_queue_entry,
-						std::vector<timeout_queue_entry>,
-						decltype(timeout_queue_cmp)>;
+    using timeout_queue_t = std::multimap<timestamp_ms_t, ev_watcher*>;
     
     class ev_loop_epoll : public ev_loop {
 	int m_epfd;
-	timeout_queue_t m_timeout_queue = timeout_queue_t(timeout_queue_cmp);
+	timeout_queue_t m_timeout_queue = timeout_queue_t();
     
-	uint64_t m_next_timer_id = 0;
-  
     public:
 	ev_loop_epoll();
 	~ev_loop_epoll();
@@ -71,14 +57,19 @@ namespace izumo::core {
 	    errno != ENOENT) {
 	    throw osexception();
 	}
+
+	// this will become .erase_if() once we embrace C++20
+	// (or implement out own priority queue)
+	for (auto& i: m_timeout_queue) {
+	    if (i.second == &watcher) {
+		i.second = nullptr;
+	    }
+	}
     }
 
     void ev_loop_epoll::add_timer(ev_watcher &watcher, timedelta_ms_t timeout) {
-	timeout_queue_entry entry;
-	entry.deadline = clock::now() + timeout;
-	entry.watcher = &watcher;
-
-	this->m_timeout_queue.push(entry);
+	assert(timeout > 0);
+	m_timeout_queue.emplace(clock::now() + timeout, &watcher);
     }
 
     void ev_loop_epoll::run_once() {
@@ -87,8 +78,7 @@ namespace izumo::core {
 	int timeout = -1;
 	if (m_timeout_queue.size() != 0) {
 	    auto now = clock::now();
-	    timeout = std::max(static_cast<int>(m_timeout_queue.top().deadline) -
-			       static_cast<int>(now),
+	    timeout = std::max(static_cast<int>(m_timeout_queue.begin()->first - now),
 			       0);
 	}
     
@@ -102,11 +92,14 @@ namespace izumo::core {
 
 	// timer events
 	auto now = clock::now();
-	while (m_timeout_queue.size() && m_timeout_queue.top().deadline <= now) {
-	    auto &top = m_timeout_queue.top();
-	    top.watcher->on_timeout();
-	    m_timeout_queue.pop();
+	auto i = m_timeout_queue.begin();
+	while (i != m_timeout_queue.end() && i->first <= now) {
+	    auto w = (i++)->second;
+	    if (!w) continue;
+	    w->on_timeout();
 	}
+
+	m_timeout_queue.erase(m_timeout_queue.begin(), i);
 
 	ev_watcher *defers[128];
 	std::size_t defers_count = 0;
