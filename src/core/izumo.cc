@@ -6,6 +6,8 @@
 #include <core/exception.hh>
 #include <core/log.hh>
 
+#include <net/ip.hh>
+
 #include <http/parser.hh>
 
 #include <array>
@@ -24,7 +26,8 @@
 // this file needs to be refactored one day
 
 static struct {
-    std::uint16_t port_h = 12345; // port number in host byte order
+    const char* host = "127.0.0.1";
+    const char* port = "12345";
 } cmdargs;
 
 static void
@@ -32,15 +35,17 @@ usage(const char* cmdname = "izumo")
 {
     fmt::print("Usage: {} [-p, --port port]\n", cmdname);
     fmt::print("\t-p, --port port: port number for demo server to listen to\n");
+    fmt::print("\t-h, --host host: host address for demo server to listen to\n");
 }
 
 static void
 parse_opts(int argc, char *argv[])
 {
-    const char* opts = "p:";
+    const char* opts = "h:p:";
 
     option longopts[] = {
-	{ .name = "port", .has_arg = true, .flag = nullptr, .val = 'p' }
+	{ .name = "port", .has_arg = true, .flag = nullptr, .val = 'p' },
+	{ .name = "host", .has_arg = true, .flag = nullptr, .val = 'h' }
     };
 
     auto running = true;
@@ -48,7 +53,10 @@ parse_opts(int argc, char *argv[])
 	switch (getopt_long(argc, argv, opts, longopts, nullptr))
 	{
 	case 'p':
-	    cmdargs.port_h = std::stoul(optarg);
+	    cmdargs.port = optarg;
+	    break;
+	case 'h':
+	    cmdargs.host = optarg;
 	    break;
 	case -1:
 	    running = false;
@@ -80,21 +88,15 @@ const char* RESPONSE_400 =
     "400 Bad Request";
 
 int
-bind_listen_sock(uint16_t port)
+bind_listen_sock(izumo::net::ip_sockaddr addr)
 {
-    int sock = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0);
+    int sock = socket(addr.family(), SOCK_STREAM | SOCK_NONBLOCK, 0);
     if (sock < 0) throw izumo::core::osexception();
 
     int val = 1;
     setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &val, sizeof(val));
 
-    sockaddr_in addr;
-    std::memset(&addr, 0, sizeof(addr));
-    addr.sin_addr.s_addr = INADDR_ANY;
-    addr.sin_port = htons(port);
-    addr.sin_family = AF_INET;
-
-    if (bind(sock, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0) {
+    if (bind(sock, addr.addr_ptr(), addr.size()) != 0) {
 	throw izumo::core::osexception();
     }
 
@@ -216,8 +218,10 @@ private:
     std::size_t m_qp = 0;
     
 public:
-    acceptor(uint16_t port): ev_watcher(bind_listen_sock(port)) {
-	izumo::core::log::info("Listening on {}", port);
+    acceptor(izumo::net::ip_sockaddr& addr):
+	ev_watcher(bind_listen_sock(addr))
+    {
+	izumo::core::log::info("Listening on {}:{}", cmdargs.host, cmdargs.port);
     }
     
     bool
@@ -265,7 +269,9 @@ int
 main(int argc, char *argv[])
 {
     parse_opts(argc, argv);
-    acceptor ac(cmdargs.port_h);
+    izumo::net::ip_sockaddr addr;
+    addr.get_address(cmdargs.host, cmdargs.port, true, AF_UNSPEC, SOCK_STREAM);
+    acceptor ac(addr);
 
     auto& loop = izumo::core::ev_loop::instance();
     loop.add_watcher(ac);
