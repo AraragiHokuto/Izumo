@@ -5,8 +5,8 @@
 #include <core/mem.hh>
 #include <core/exception.hh>
 #include <core/log.hh>
-
 #include <net/ip.hh>
+#include <net/tcp.hh>
 
 #include <http/parser.hh>
 
@@ -112,7 +112,6 @@ private:
     izumo::core::byte_buffer_writer m_buffer_writer;
     izumo::core::byte_buffer_view m_write_view;
     izumo::core::mem_pool m_pool;
-    izumo::core::mp_unique_ptr<izm_sockaddr> m_addr;
 
     void
     stop()
@@ -124,17 +123,12 @@ private:
     }
     
 public:
-    client(int fd, izumo::core::mp_unique_ptr<izm_sockaddr> addr,
-	   izumo::core::mem_pool p):
-	ev_watcher(fd), m_addr(std::move(addr)),
+    client(int fd, izumo::core::mem_pool p):
+	ev_watcher(fd),
 	m_buffer(BUFSIZE),
 	m_buffer_writer(m_buffer),
 	m_pool(std::move(p))
-    {
-	izumo::core::log::info("New client: {}:{}",
-			       inet_ntoa(m_addr->ipv4.sin_addr),
-			       ntohs(m_addr->ipv4.sin_port));
-    }
+    {}
 
     bool
     on_event(bool r, bool w) override
@@ -144,20 +138,13 @@ public:
 
 	izumo::core::byte_buffer_view read_view;
 	while (true) {
-	    auto ret = recv(m_fd, m_buffer_writer.current(), m_buffer_writer.space(), MSG_NOSIGNAL);
-	    if (ret < 0) {
-		if (errno != EAGAIN && errno != EWOULDBLOCK) {
-		    throw izumo::core::osexception();
-		}
-		return false;
-	    }
-	    
-	    if (ret == 0) {
+	    try {
+		auto ret = izumo::net::recv(m_fd, m_buffer_writer);
+	    } catch (const std::exception& err) {
+		izumo::core::log::warn("Exception during recv: {}", err.what());
 		stop();
-		return false;
 	    }
-	    
-	    m_buffer_writer.append(ret);
+
 	    read_view = m_buffer_writer.to_view();
 	    
 	    if (izumo::http::header_completed(read_view)) {
@@ -173,6 +160,8 @@ public:
 	try {
 	    izumo::http::request req(m_pool);
 	    izumo::http::parse_request(req, read_view);
+
+	    izumo::core::log::info("{} {} 200", req.method, req.target);
 	    
 	    auto response = fmt::format("{}{}: {}", RESPONSE_HEADER, req.method, req.target);
 	    assert(response.size() < m_buffer.size());
@@ -182,44 +171,29 @@ public:
 	    m_write_view = izumo::core::byte_buffer_view(m_buffer, std::strlen(RESPONSE_400));
 	    std::memcpy(m_write_view.data(), RESPONSE_400, std::strlen(RESPONSE_400));
 	}
-
 	
-	while (true) {
-	    auto ret = send(m_fd, m_write_view.data(), m_write_view.size(), MSG_NOSIGNAL);
-	    if (ret < 0) {
-		if (errno != EAGAIN && errno != EWOULDBLOCK) {
-		    throw izumo::core::osexception();
-		}
-		return false;
-	    }
-
-	    if (ret == 0) {
+	while (m_write_view.size()) {
+	    try {
+		izumo::net::send(m_fd, m_write_view);
+	    } catch (const std::exception& err) {
+		izumo::core::log::warn("Exception during send: {}", err.what());
 		stop();
-		return false;
 	    }
-
-	    if (ret == m_write_view.size()) {
-		stop();
-		return false;
-	    }
-	    
-	    m_write_view = m_write_view.slice(ret, m_write_view.size());
 	}
+	
+	stop();
+	return false;
     }
 };
 
 class acceptor: public izumo::core::ev_watcher {
 private:
-    struct queue_entry {
-	int fd;
-	izm_sockaddr addr;
-    };
-    std::array<queue_entry, 128> m_queue;
+    std::array<int, 128> m_queue;
     std::size_t m_qp = 0;
     
 public:
     acceptor(izumo::net::ip_sockaddr& addr):
-	ev_watcher(bind_listen_sock(addr))
+	ev_watcher(izumo::net::bind_tcp(addr, 128))
     {
 	izumo::core::log::info("Listening on {}:{}", cmdargs.host, cmdargs.port);
     }
@@ -232,19 +206,15 @@ public:
 	bool do_defer = false;
 
 	while (true) {
-	    auto& qe = m_queue[m_qp];
-	    auto ret = accept4(m_fd, &qe.addr.untyped, &qe.addr.len, SOCK_NONBLOCK);
+	    auto [sock, addr] = izumo::net::accept(m_fd);
 	    
-	    if (ret < 0) {
-		if (errno != EAGAIN && errno != EWOULDBLOCK) {
-		    throw izumo::core::osexception();
-		}
+	    if (sock < 0) {
 		break;
 	    }
-	    qe.fd = ret;
+
+	    m_queue[m_qp++] = sock;
 
 	    do_defer = true;
-	    ++m_qp;
 	    if (m_qp == 128) break;
 	}
 
@@ -255,9 +225,7 @@ public:
     on_deferred() override {
 	for (std::size_t i = 0; i < m_qp; ++i) {
 	    izumo::core::mem_pool p;
-	    auto addr = p.make_unique<izm_sockaddr>();
-	    *addr = m_queue[i].addr;
-	    auto c = new client(m_queue[i].fd, std::move(addr), std::move(p));
+	    auto c = new client(m_queue[i], std::move(p));
 	    izumo::core::ev_loop::instance().add_watcher(*c);
 	}
 
