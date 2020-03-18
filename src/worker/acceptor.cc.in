@@ -1,0 +1,44 @@
+#include <core/ev_watcher.hh>
+#include <core/log.hh>
+
+#include <net/ip.hh>
+
+#include <vector>
+
+// XXX: tmp workaround
+#include "demo_handler.cc.in"
+
+using namespace izumo;
+
+class acceptor: public core::ev_watcher
+{
+private:
+    std::vector<int> m_queue;
+    
+public:
+    acceptor(int fd): ev_watcher(fd) {}
+    
+    bool
+    on_event(bool r, bool) override
+    {
+	while (true) {
+	    auto [fd, addr] = net::accept(m_fd);
+	    if (fd == -1) break;
+
+	    core::log::debug("Accepted {}:{}", addr.ntoa(), addr.port());
+	    m_queue.push_back(fd);
+	}
+
+	return !m_queue.empty();
+    }
+
+    void
+    on_deferred() override
+    {
+	for (auto i: m_queue) {
+	    new http_demo_handler(i);
+	}
+
+	m_queue.clear();
+    }
+};

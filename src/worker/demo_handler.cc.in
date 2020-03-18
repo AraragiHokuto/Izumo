@@ -1,0 +1,251 @@
+#include <core/log.hh>
+#include <core/ev_watcher.hh>
+#include <core/mem.hh>
+#include <net/tcp.hh>
+#include <http/parser.hh>
+#include <http/writer.hh>
+
+#include <string>
+
+using namespace izumo;
+using namespace izumo;
+
+using mp_string = std::basic_string<core::byte_t, core::mem_pool_allocator<core::byte_t>>;
+
+std::size_t
+create_response_body(
+    core::byte_buffer_writer& writer,
+    const http::request& req)
+{
+    std::size_t ret = 0;
+    
+    ret += writer.strcpy("Method: ");
+    ret += writer.strcpy(req.method);
+    ret += writer.try_write_byte('\n');
+
+    ret += writer.strcpy("Target: ");
+    ret += writer.strcpy(req.target);
+    ret += writer.try_write_byte('\n');
+
+    ret += writer.strcpy("Headers:\n");
+
+    for (const auto& h: req.headers) {
+	ret += writer.strcpy("    ");
+	ret += writer.strcpy(h.first);
+	ret += writer.strcpy(" = ");
+	ret += writer.strcpy(h.second);
+	ret += writer.try_write_byte('\n');
+    }
+
+    return ret;
+}
+
+std::size_t
+create_error_body(
+    core::byte_buffer_writer& writer,
+    int, const char* reason)
+{
+    return writer.strcpy(reason);
+}
+
+// should be moved to somewhere else
+class http_watcher: public core::ev_watcher {
+protected:
+    http::request m_req;
+    core::byte_buffer_writer m_writer;
+
+    bool m_have_send_view = false;
+    core::byte_buffer_view m_send_view;
+
+    void
+    do_send()
+    {
+	auto ret = net::send(m_fd, m_send_view);
+	if (!m_send_view.size()) {
+	    m_have_send_view = false;
+	    on_send_finish();
+	    return;
+	}
+    }
+
+public:
+    http_watcher(int fd, core::mem_pool& pool, core::byte_buffer_writer writer):
+	ev_watcher(fd), m_req(pool), m_writer(std::move(writer))
+    {}
+    
+    virtual void on_request_received(std::size_t request_size) = 0;
+    virtual void on_bad_request() = 0;
+    virtual void on_request_too_large() = 0;
+
+    virtual void on_send_finish() = 0;
+    
+    bool
+    on_event(bool r, bool w) override
+    {
+	if (w && m_have_send_view) {
+	    return true;
+	} else if (r) {
+	    net::recv(m_fd, m_writer);
+	    return http::header_completed(m_writer.to_view()) || !m_writer.space();
+	}
+	return false;
+    }
+
+    void
+    send_view(core::byte_buffer_view& send_view)
+    {
+	m_send_view = send_view;
+	m_have_send_view = true;
+
+	do_send();
+    }
+
+    void
+    on_deferred() override
+    {
+	if (m_have_send_view) {
+	    do_send();
+	} else {
+	    auto len = http::header_completed(m_writer.to_view());
+	    
+	    if (!http::header_completed(m_writer.to_view())) {
+		on_request_too_large();
+		return;
+	    }
+
+	    try {
+		m_req.parse(m_writer.to_view());
+	    } catch (const http::bad_request&) {
+		on_bad_request();
+		return;
+	    }
+
+	    on_request_received(len);
+	}
+    }
+};
+
+class http_demo_handler;
+
+class http_demo_watcher: public http_watcher {
+private:
+    http_demo_handler& m_handler;
+    
+public:
+    http_demo_watcher(int fd, core::mem_pool& pool,
+		      core::byte_buffer_writer writer,
+		      http_demo_handler& handler):
+	http_watcher(fd, pool, std::move(writer)),
+	m_handler(handler)
+    {}
+
+    void on_request_received(std::size_t request_size) override;
+    void on_bad_request() override;
+    void on_request_too_large() override;
+
+    void on_send_finish() override;
+};
+
+class http_demo_handler {
+private:
+    core::byte_buffer m_buffer;
+    core::byte_buffer_view m_res_header_view;
+    core::byte_buffer_view m_body_view;
+    
+    core::mem_pool m_pool;
+
+    bool m_res_header_finished = false;
+
+    http_demo_watcher m_watcher;
+
+    void
+    m_start_response(core::byte_buffer_writer& writer,
+		     int status_code,
+		     const std::string_view& reason,
+		     std::size_t body_length)
+    {
+	http::start_response(writer, status_code, reason);
+
+	http::add_header(writer, "Content-Type", "text/plain");
+	http::add_header(writer, "Server", "Izumo");
+	http::add_header(writer, "Content-Length", std::to_string(body_length));
+
+	http::write_eoh(writer);
+
+	m_res_header_view = writer.to_view();
+    }
+public:
+    http_demo_handler(int client_fd):
+	m_watcher(client_fd, m_pool, m_buffer.writer(), *this), m_buffer(4096)
+    {
+	core::log::debug("Demo Handler initialized");
+	
+	m_watcher.add_to_loop();
+    }
+
+    void
+    on_bad_request()
+    {
+	auto writer = m_buffer.writer();
+	create_error_body(writer, 400, "Bad Request");
+	m_body_view = writer.to_view();
+
+	writer = m_buffer.writer(m_body_view.size());
+	m_start_response(writer, 400, "Bad Request", m_body_view.size());
+
+	m_res_header_view = writer.to_view();
+	m_watcher.send_view(m_res_header_view);
+    }
+
+    void
+    on_request_received(http::request& req, std::size_t req_size)
+    {
+	core::log::info("200 {} {}", req.method, req.target);
+	
+	auto writer = m_buffer.writer(req_size);
+	create_response_body(writer, req);
+	m_body_view = writer.to_view();
+
+	writer = m_buffer.writer(m_body_view.size() + req_size);
+	m_start_response(writer, 200, "OK", m_body_view.size());
+
+	m_res_header_view = writer.to_view();
+	m_watcher.send_view(m_res_header_view);
+    }
+
+    void
+    on_send_finish()
+    {
+	if (m_res_header_finished) {
+	    delete this;
+	    return;
+	} else {
+	    m_res_header_finished = true;
+	    m_watcher.send_view(m_body_view);
+	}
+    }
+};
+
+void
+http_demo_watcher::on_bad_request()
+{
+    m_handler.on_bad_request();
+}
+
+void
+http_demo_watcher::on_request_too_large()
+{
+    m_handler.on_bad_request();
+}
+
+void
+http_demo_watcher::on_request_received(std::size_t request_size)
+{
+    m_handler.on_request_received(m_req, request_size);
+}
+
+void
+http_demo_watcher::on_send_finish()
+{
+    m_handler.on_send_finish();
+}

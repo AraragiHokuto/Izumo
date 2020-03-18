@@ -91,7 +91,7 @@ namespace izumo::net {
 	    }
 
 	    ret += recvret;
-	    writer.append(recvret);
+	    writer.move_current(recvret);
 	}
 
 	return ret;

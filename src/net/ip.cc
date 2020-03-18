@@ -54,7 +54,13 @@ namespace izumo::net {
     void*
     ip_sockaddr::m_vp()
     {
-	return reinterpret_cast<void*>(&m_storage);
+	return static_cast<void*>(&m_storage);
+    }
+
+    const void*
+    ip_sockaddr::m_vp() const
+    {
+	return static_cast<const void*>(&m_storage);
     }
     
     sockaddr*
@@ -73,6 +79,40 @@ namespace izumo::net {
     ip_sockaddr::v6_ptr() noexcept
     {
 	return static_cast<sockaddr_in6*>(m_vp());
+    }
+
+    const sockaddr*
+    ip_sockaddr::addr_ptr() const noexcept
+    {
+	return static_cast<const sockaddr*>(m_vp());
+    }
+
+    const sockaddr_in*
+    ip_sockaddr::v4_ptr() const noexcept
+    {
+	return static_cast<const sockaddr_in*>(m_vp());
+    }
+
+    const sockaddr_in6*
+    ip_sockaddr::v6_ptr() const noexcept
+    {
+	return static_cast<const sockaddr_in6*>(m_vp());
+    }
+
+    const char*
+    ip_sockaddr::ntoa() const noexcept
+    {
+	static thread_local char buf[INET6_ADDRSTRLEN];
+	
+	inet_ntop(family(), m_vp(), buf, size());
+	return buf;
+    }
+
+    std::uint16_t
+    ip_sockaddr::port() const noexcept
+    {
+	auto ret = family() == AF_INET6 ? v6_ptr()->sin6_port : v4_ptr()->sin_port;
+	return ntohs(ret);
     }
 
     socklen_t

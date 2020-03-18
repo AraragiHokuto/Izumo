@@ -11,18 +11,12 @@ namespace izumo::core {
     public:
 	static ev_loop& instance();
 
-    public:
-	/** add_watcher: add a watcher to monitor
-	 *   @parameters:
-	 *      watcher: watcher to be added
-	 */
+    protected:
 	virtual void add_watcher(ev_watcher& watcher) = 0;
-
-	/** remove_watcher: stop monitoring a watcher
-	 *   @parameters:
-	 *      watcher: watcher to be removed
-	 */
 	virtual void remove_watcher(ev_watcher& watcher) = 0;
+
+	friend ev_watcher;
+    public:
 
 	/** add_timer: add a timer
 	 *   @parameters:

@@ -3,15 +3,26 @@
 
 #include <cstdint>
 
+#include <unistd.h>
+
 namespace izumo::core {
+    class ev_loop;
     // base class for a event watcher
     class ev_watcher {
     protected:
 	int m_fd; // file descriptor to watch
+
+	core::ev_loop* m_loop = nullptr;
     public:
 	ev_watcher(int fd): m_fd(fd) {}
+	~ev_watcher() { if (m_loop) remove_from_loop(); close(m_fd); }
 	
 	int fd() { return m_fd; }
+
+	void add_to_loop();
+	void add_to_loop(ev_loop& loop);
+	void remove_from_loop();
+	
 	/** on_event: edge triggered event callback
 	 *   called each time watcher state is changed
 	 *   @parameters:

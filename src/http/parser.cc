@@ -102,7 +102,7 @@ namespace izumo::http {
 
 	    // no space allowed before colon 
 	    if (*p != ':') throw bad_request();
-	    auto field_end = p;
+	    auto field_end = p++;
 
 	    p = find_not_equal(p, end, ' '); 
 	    assert(p != end);
@@ -113,7 +113,7 @@ namespace izumo::http {
 	    assert(p != end);
 	    expect_crlf(p);
 
-	    auto value_end = find_not_equal(value_begin, p, ' ') + 1;
+	    auto value_end = rfind_not_equal(value_begin, p, ' ') + 1;
 
 	    // empty value is not allowed
 	    if (value_end == value_begin) throw bad_request();

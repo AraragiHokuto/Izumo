@@ -19,13 +19,13 @@ namespace izumo::http {
 
 	if (writer.space() < ret) return ret;
 
-	writer.memcpy(method.data(), method.size());
+	writer.strcpy(method);
 	writer.write_byte(' ');
 
-	writer.memcpy(target.data(), target.size());
+	writer.strcpy(target);
 	writer.write_byte(' ');
 	
-	writer.memcpy(HTTPVER_PREF, HTTPVER_PREF_LEN);
+	writer.strcpy(HTTPVER_PREF);
 	writer.write_byte(httpver_minor + '0');
 
 	writer.write_byte('\r');
@@ -46,7 +46,7 @@ namespace izumo::http {
 	
 	if (writer.space() < ret) return ret;
 
-	writer.memcpy(HTTPVER_PREF, HTTPVER_PREF_LEN);
+	writer.strcpy(HTTPVER_PREF);
 	writer.write_byte(httpver_minor + '0');
 	writer.write_byte(' ');
 
@@ -58,7 +58,7 @@ namespace izumo::http {
 	writer.memcpy(status_buf, sizeof(status_buf));
 	writer.write_byte(' ');
 
-	writer.memcpy(status_message.data(), status_message.size());
+	writer.strcpy(status_message);
 	writer.write_byte('\r');
 	writer.write_byte('\n');
 
@@ -76,12 +76,12 @@ namespace izumo::http {
 
 	if (writer.space() < ret) return ret;
 
-	writer.memcpy(field.data(), field.size());
+	writer.strcpy(field);
 
 	writer.write_byte(':');
 	writer.write_byte(' ');
 
-	writer.memcpy(value.data(), value.size());
+	writer.strcpy(value);
 
 	writer.write_byte('\r');
 	writer.write_byte('\n');

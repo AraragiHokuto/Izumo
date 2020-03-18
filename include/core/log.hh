@@ -48,6 +48,12 @@ namespace izumo::core {
     public:
 	void set_name(std::string name);
 	void set_output(std::unique_ptr<log_output> output);
+
+	void
+	set_level(log_level min_level)
+	{
+	    m_min_level = min_level;
+	}
 	
 	template <typename _s, typename... _args_t> void
 	log(log_level level, const _s& fmt, _args_t&&... args)

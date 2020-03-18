@@ -1,7 +1,7 @@
 #ifndef IZUMO_HTTP_PARSER_HH_
 #define IZUMO_HTTP_PARSER_HH_
 
-#include <http/types.hh>
+#include <core/mem.hh>
 #include <core/exception.hh>
 #include <core/byte_buffer.hh>
 

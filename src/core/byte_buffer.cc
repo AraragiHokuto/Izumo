@@ -47,17 +47,29 @@ namespace izumo::core {
     }
 
     byte_buffer_view
-    byte_buffer::view(std::size_t end)
+    byte_buffer::view(std::size_t end) noexcept
     {
 	return view(0, end);
     }
 
     byte_buffer_view
-    byte_buffer::view(std::size_t begin, std::size_t end)
+    byte_buffer::view(std::size_t begin, std::size_t end) noexcept
     {
 	return byte_buffer_view(*this, begin, end);
     }
 
+    byte_buffer_writer
+    byte_buffer::writer(std::size_t begin) noexcept
+    {
+	return writer(begin, size());
+    }
+
+    byte_buffer_writer
+    byte_buffer::writer(std::size_t begin, std::size_t end) noexcept
+    {
+	return byte_buffer_writer(*this, begin, end);
+    }
+    
     void*
     byte_buffer_view::data() const noexcept
     {
@@ -103,8 +115,8 @@ namespace izumo::core {
 	return std::string_view(ptr, m_end);
     }
 
-    byte_buffer_writer::byte_buffer_writer(byte_buffer& buffer, std::size_t begin):
-	m_buf(buffer.ptr()), m_begin(begin), m_current(begin), m_end(buffer.size())
+    byte_buffer_writer::byte_buffer_writer(byte_buffer& buffer, std::size_t begin, std::size_t end):
+	m_buf(buffer.ptr()), m_begin(begin), m_current(begin), m_end(end)
     {}
 
     void*
@@ -145,10 +157,23 @@ namespace izumo::core {
     }
 
     std::size_t
+    byte_buffer_writer::strcpy(const char* str) noexcept
+    {
+	return memcpy(str, std::strlen(str));
+    }
+
+    std::size_t
+    byte_buffer_writer::strcpy(const std::string_view& view) noexcept
+    {
+	return memcpy(view.data(), view.size());
+    }
+
+    std::size_t
     byte_buffer_writer::memcpy(const void* src, std::size_t size) noexcept
     {
 	std::size_t ret = std::min(space(), size);
 	std::memcpy(current(), src, ret);
+	move_current(ret);
 	return ret;
     }
 
@@ -157,6 +182,14 @@ namespace izumo::core {
     {
 	assert(space());
 	m_buf[m_current++] = byte;
+    }
+
+    std::size_t
+    byte_buffer_writer::try_write_byte(byte_t byte) noexcept
+    {
+	if (!space()) return 0;
+	m_buf[m_current++] = byte;
+	return 1;
     }
 
     byte_buffer_view

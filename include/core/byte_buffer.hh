@@ -29,8 +29,11 @@ namespace izumo::core {
 	void resize(std::size_t new_size) noexcept;
 	bool try_resize(std::size_t new_size) noexcept;
 
-	byte_buffer_view view(std::size_t end);
-	byte_buffer_view view(std::size_t offset, std::size_t end);
+	byte_buffer_view view(std::size_t end) noexcept;
+	byte_buffer_view view(std::size_t offset, std::size_t end) noexcept;
+
+	byte_buffer_writer writer(std::size_t offset = 0) noexcept;
+	byte_buffer_writer writer(std::size_t offset, std::size_t end) noexcept;
 
 	void* data() const noexcept { return m_ptr; }
 	byte_t* ptr() const noexcept { return m_ptr; }
@@ -76,10 +79,10 @@ namespace izumo::core {
 
     public:
 	byte_buffer_writer() = default;
-	byte_buffer_writer(byte_buffer& buffer):
-	    byte_buffer_writer(buffer, 0)
+	byte_buffer_writer(byte_buffer& buffer, std::size_t begin = 0):
+	    byte_buffer_writer(buffer, begin, buffer.size())
 	{}
-	byte_buffer_writer(byte_buffer& buffer, std::size_t begin);
+	byte_buffer_writer(byte_buffer& buffer, std::size_t begin, std::size_t end);
 
 	void* current() const noexcept;
 	void* begin() const noexcept;
@@ -90,8 +93,12 @@ namespace izumo::core {
 
 	void move_current(std::size_t size) noexcept;
 
+	std::size_t strcpy(const char* src) noexcept;
+	std::size_t strcpy(const std::string_view& view) noexcept;
 	std::size_t memcpy(const void* src, std::size_t size) noexcept;
+
 	void write_byte(byte_t byte) noexcept;
+	std::size_t try_write_byte(byte_t byte) noexcept;
 
 	byte_buffer_view to_view() const noexcept;
     };
