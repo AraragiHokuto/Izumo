@@ -90,6 +90,8 @@ namespace izumo::core {
 
 	void append(std::size_t size) noexcept;
 
+	void write_byte(byte_t byte) noexcept;
+
 	byte_buffer_view to_view() const noexcept;
     };
 }

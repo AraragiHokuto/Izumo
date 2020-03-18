@@ -144,6 +144,13 @@ namespace izumo::core {
 	m_current += size;
     }
 
+    void
+    byte_buffer_writer::write_byte(byte_t byte) noexcept
+    {
+	assert(space());
+	m_buf[m_current++] = byte;
+    }
+
     byte_buffer_view
     byte_buffer_writer::to_view() const noexcept
     {

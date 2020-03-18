@@ -4,7 +4,7 @@
 #include <cstring>
 
 static unsigned char*
-scan_equal(unsigned char* begin, unsigned char* end, char target)
+find_equal(unsigned char* begin, unsigned char* end, char target)
 {
     for (auto p = begin; p < end; ++p) {
 	if (*p == target) return p;
@@ -14,7 +14,7 @@ scan_equal(unsigned char* begin, unsigned char* end, char target)
 }
 
 static unsigned char*
-scan_not_equal(unsigned char* begin, unsigned char* end, char target)
+find_not_equal(unsigned char* begin, unsigned char* end, char target)
 {
     for (auto p = begin; p < end; ++p) {
 	if (*p != target) return p;
@@ -24,7 +24,7 @@ scan_not_equal(unsigned char* begin, unsigned char* end, char target)
 }
 
 static unsigned char*
-scan_in_range(unsigned char* begin, unsigned char* end, char min, char max)
+find_in_range(unsigned char* begin, unsigned char* end, char min, char max)
 {
     for (auto p = begin; p < end; ++p) {
 	if (*p >= min && *p <= max) return p;
@@ -34,7 +34,7 @@ scan_in_range(unsigned char* begin, unsigned char* end, char min, char max)
 }
 
 static unsigned char* 
-scan_not_in_range(unsigned char* begin, unsigned char* end, char min, char max)
+find_not_in_range(unsigned char* begin, unsigned char* end, char min, char max)
 {
     for (auto p = begin; p < end; ++p) {
 	if (*p < min || *p > max) return p;
@@ -56,7 +56,7 @@ is_tchar(char c)
 }
 
 static unsigned char*
-scan_not_token(unsigned char* begin, unsigned char* end)
+find_not_token(unsigned char* begin, unsigned char* end)
 {
     for (auto p = begin; p < end; ++p) {
 	if (!is_tchar(*p)) return p;
@@ -67,13 +67,21 @@ scan_not_token(unsigned char* begin, unsigned char* end)
 
 // for removing trailing spaces
 static unsigned char*
-rscan_not_equal(unsigned char* begin, unsigned char* end, char target)
+rfind_not_equal(unsigned char* begin, unsigned char* end, char target)
 {
     for (auto p = end - 1; p >= begin; --p) {
 	if (target != *p) return p;
     }
 
     return begin - 1;
+}
+
+static auto
+to_string_view(const unsigned char* begin, const unsigned char* end)
+{
+    auto _begin = static_cast<const void*>(begin);
+    
+    return std::string_view(static_cast<const char*>(_begin), end - begin);
 }
 
 namespace izumo::http {
@@ -89,33 +97,31 @@ namespace izumo::http {
 	while (*p != '\r') {
 	    // parse field
 	    auto field_begin = p;
-	    p = scan_not_token(p, end);
+	    p = find_not_token(p, end);
 	    assert(p != end); // never return end since `header_completed` must be called beforehand
 
 	    // no space allowed before colon 
 	    if (*p != ':') throw bad_request();
 	    auto field_end = p;
 
-	    p = scan_not_equal(p, end, ' '); 
-	    if (p == end) throw bad_request();
+	    p = find_not_equal(p, end, ' '); 
+	    assert(p != end);
 	    
 	    auto value_begin = p;
 
-	    p = scan_equal(p, end, '\r'); 
+	    p = find_equal(p, end, '\r'); 
 	    assert(p != end);
 	    expect_crlf(p);
 
-	    auto value_end = scan_not_equal(value_begin, p, ' ') + 1;
+	    auto value_end = find_not_equal(value_begin, p, ' ') + 1;
 
 	    // empty value is not allowed
 	    if (value_end == value_begin) throw bad_request();
 
 	    p += 2; // skip CRLF
 
-	    h.emplace(std::string_view(reinterpret_cast<const char*>(field_begin),
-				       field_end - field_begin),
-		      std::string_view(reinterpret_cast<const char*>(value_begin),
-				       value_end - value_begin));
+	    h.emplace(to_string_view(field_begin, field_end),
+		      to_string_view(value_begin, value_end));
 	}
 
 	expect_crlf(p);
@@ -136,7 +142,7 @@ namespace izumo::http {
 	auto end = view.ptr() + view.size();
 
 	while (true) {
-	    p = scan_equal(p, end, '\r');
+	    p = find_equal(p, end, '\r');
 	    if (end - p < 4) return 0;
 
 	    if (is_header_end(p)) break;
@@ -160,44 +166,76 @@ namespace izumo::http {
     }
 
     void
-    parse_request(request& req, const core::byte_buffer_view& view)
+    request::parse(const core::byte_buffer_view& view)
     {
 	auto p = view.ptr();
 	auto end = view.ptr() + view.size();
 
 	// parse request-line
+
+	// method
 	auto method_begin = p;
-	p = scan_not_token(p, end);
+	p = find_not_token(p, end);
 	assert(p != end);
 
 	if (*p != ' ') throw bad_request();
 	auto method_end = p++;
 
+	// target (URI)
 	auto target_begin = p;
-	p = scan_equal(p, end, ' ');
+	p = find_equal(p, end, ' ');
 	if (p == end) throw bad_request();
 	if (*p != ' ') throw bad_request();
 	auto target_end = p++;
 
-	req.method = std::string_view(reinterpret_cast<char*>(method_begin),
-				      method_end - method_begin);
-	req.target = std::string_view(reinterpret_cast<char*>(target_begin),
-				      target_end - target_begin);
-	req.httpver_major = 1;
-	req.httpver_minor = parse_httpver(p, end);
+	method = to_string_view(method_begin, method_end);
+	target = to_string_view(target_begin, target_end);
+
+	// HTTP VERSION
+	httpver_major = 1;
+	httpver_minor = parse_httpver(p, end);
 
 	p += 8;
 	expect_crlf(p);
 	p += 2;
 
-	parse_header(req.headers, p, end);
+	parse_header(headers, p, end);
     }
 
     void
-    parse_response(response& res, const core::byte_buffer_view& view)
+    response::parse(const core::byte_buffer_view& view)
     {
-	// TODO
-	(void)res;
-	(void)view;
+	auto p = view.ptr();
+	auto end = view.ptr() + view.size();
+
+	// parse status-line
+
+	// httpver
+	httpver_major = 1;
+	httpver_minor = parse_httpver(p, end);
+
+	p += 8;
+	if (p == end) throw bad_request();
+	if (*p++ != ' ') throw bad_request();
+
+	// status-code (3DIGIT)
+	auto status_begin = p;
+	auto status_end = find_not_in_range(p, end, '0', '9');
+	if (status_end - status_begin != 3) throw bad_request();
+	status_code = (p[0] - '0') * 100;
+	status_code += (p[1] - '0') * 10;
+	status_code += p[2] - '0';
+
+	p = status_end;
+	assert(p != end);
+	
+	if (*p++ == ' ') throw bad_request();
+
+	// reason-phrase
+	auto reason_begin = p;
+	auto reason_end = p = find_equal(p, end, '\r');
+	expect_crlf(p);
+
+	status_message = to_string_view(reason_begin, reason_end);
     }
 }
