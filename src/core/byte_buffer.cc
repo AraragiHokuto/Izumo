@@ -138,10 +138,18 @@ namespace izumo::core {
     }
 
     void
-    byte_buffer_writer::append(std::size_t size) noexcept
+    byte_buffer_writer::move_current(std::size_t size) noexcept
     {
 	assert(size <= m_end - m_current);
 	m_current += size;
+    }
+
+    std::size_t
+    byte_buffer_writer::memcpy(const void* src, std::size_t size) noexcept
+    {
+	std::size_t ret = std::min(space(), size);
+	std::memcpy(current(), src, ret);
+	return ret;
     }
 
     void

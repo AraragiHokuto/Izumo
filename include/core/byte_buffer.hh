@@ -88,8 +88,9 @@ namespace izumo::core {
 	std::size_t size() const noexcept;
 	std::size_t space() const noexcept;
 
-	void append(std::size_t size) noexcept;
+	void move_current(std::size_t size) noexcept;
 
+	std::size_t memcpy(const void* src, std::size_t size) noexcept;
 	void write_byte(byte_t byte) noexcept;
 
 	byte_buffer_view to_view() const noexcept;
